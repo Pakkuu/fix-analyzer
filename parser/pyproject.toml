@@ -8,3 +8,13 @@ dependencies = []
 
 [project.scripts]
 fix-parser = "parser:main"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["parser.py"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
