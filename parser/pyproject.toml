@@ -1,0 +1,10 @@
+[project]
+name = "fix-parser"
+version = "0.1.0"
+description = "FIX protocol log parser"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+fix-parser = "parser:main"
