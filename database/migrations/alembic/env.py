@@ -1,8 +1,7 @@
 """
 Alembic env.py — auto-generated, then customised for fix-analyzer.
 
-Imports the project engine so the DB URL is defined in one place
-(database/connection.py) and exposes the ORM metadata for autogenerate.
+Configured for manual migrations since we are not using an ORM.
 """
 
 from logging.config import fileConfig
@@ -12,7 +11,6 @@ from alembic import context
 
 # ── project imports ─────────────────────────────────────────────────────
 from database.connection import engine, DATABASE_URL
-from database.models import Base                       # noqa: F401  (registers all tables)
 
 # ── Alembic config object ──────────────────────────────────────────────
 config = context.config
@@ -24,8 +22,8 @@ config.set_main_option("sqlalchemy.url", DATABASE_URL)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Target metadata for autogenerate support
-target_metadata = Base.metadata
+# No ORM models, so no autogenerate metadata
+target_metadata = None
 
 
 # ── offline mode ────────────────────────────────────────────────────────

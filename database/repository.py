@@ -1,94 +1,125 @@
 """
 database.repository
 ~~~~~~~~~~~~~~~~~~~
-All SQL read/write logic.  Nothing else belongs here.
+All SQL read/write logic using raw SQL (no ORM).
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional, Sequence
+from datetime import datetime, UTC
+from typing import Optional, Sequence, Any
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from database.models import Order, Anomaly
 
 
 # ── writes ──────────────────────────────────────────────────────────────
 
-def insert_order(session: Session, order: dict) -> Order:
+def insert_order(session: Session, order: dict) -> dict:
     """
-    Persist a parsed FIX order dict and return the ORM object.
-
-    Expected keys (all optional except raw_fix):
-        cl_ord_id, symbol, side, msg_type, order_qty, price,
-        fill_price, status, seq_num, sender_comp_id, target_comp_id, raw_fix
+    Persist a parsed FIX order record using raw SQL.
+    Returns a dict with the inserted record data (including 'id').
     """
-    rec = Order(
-        cl_ord_id=order.get("cl_ord_id", ""),
-        symbol=order.get("symbol", ""),
-        side=order.get("side", ""),
-        msg_type=order.get("msg_type", ""),
-        order_qty=order.get("order_qty"),
-        price=order.get("price"),
-        fill_price=order.get("fill_price"),
-        status=order.get("status"),
-        seq_num=order.get("seq_num"),
-        sender_comp_id=order.get("sender_comp_id"),
-        target_comp_id=order.get("target_comp_id"),
-        raw_fix=order["raw_fix"],
-    )
-    session.add(rec)
-    session.flush()           # assigns rec.id without committing
-    return rec
+    sql = text("""
+        INSERT INTO orders (
+            cl_ord_id, symbol, side, msg_type, order_qty, price,
+            fill_price, status, seq_num, sender_comp_id, target_comp_id,
+            raw_fix, received_at
+        ) VALUES (
+            :cl_ord_id, :symbol, :side, :msg_type, :order_qty, :price,
+            :fill_price, :status, :seq_num, :sender_comp_id, :target_comp_id,
+            :raw_fix, :received_at
+        )
+    """)
+    
+    # Ensure received_at is set if not provided
+    received_at = order.get("received_at") or datetime.now(UTC)
+    
+    params = {
+        "cl_ord_id":      order.get("cl_ord_id", ""),
+        "symbol":         order.get("symbol", ""),
+        "side":           order.get("side", ""),
+        "msg_type":       order.get("msg_type", ""),
+        "order_qty":      order.get("order_qty"),
+        "price":          order.get("price"),
+        "fill_price":     order.get("fill_price"),
+        "status":         order.get("status"),
+        "seq_num":        order.get("seq_num"),
+        "sender_comp_id": order.get("sender_comp_id"),
+        "target_comp_id": order.get("target_comp_id"),
+        "raw_fix":        order["raw_fix"],
+        "received_at":    received_at,
+    }
+    
+    result = session.execute(sql, params)
+    inserted_id = result.lastrowid
+    
+    # Return a dict version of the record
+    return {**params, "id": inserted_id}
 
 
-def insert_anomaly(session: Session, anomaly: dict) -> Anomaly:
+def insert_anomaly(session: Session, anomaly: dict) -> dict:
     """
-    Persist an anomaly record.
-
-    Required keys: order_id, anomaly_type, raw_fix
-    Optional:      severity, description
+    Persist an anomaly record using raw SQL.
     """
-    rec = Anomaly(
-        order_id=anomaly["order_id"],
-        anomaly_type=anomaly["anomaly_type"],
-        severity=anomaly.get("severity", "MEDIUM"),
-        description=anomaly.get("description"),
-        raw_fix=anomaly.get("raw_fix"),
-    )
-    session.add(rec)
-    session.flush()
-    return rec
+    sql = text("""
+        INSERT INTO anomalies (
+            order_id, anomaly_type, severity, description, raw_fix, detected_at
+        ) VALUES (
+            :order_id, :anomaly_type, :severity, :description, :raw_fix, :detected_at
+        )
+    """)
+    
+    detected_at = anomaly.get("detected_at") or datetime.now(UTC)
+    
+    params = {
+        "order_id":     anomaly["order_id"],
+        "anomaly_type": anomaly["anomaly_type"],
+        "severity":     anomaly.get("severity", "MEDIUM"),
+        "description":  anomaly.get("description"),
+        "raw_fix":      anomaly.get("raw_fix"),
+        "detected_at":  detected_at,
+    }
+    
+    result = session.execute(sql, params)
+    inserted_id = result.lastrowid
+    
+    return {**params, "id": inserted_id}
 
 
 # ── reads ───────────────────────────────────────────────────────────────
+
+def _to_dicts(rows) -> list[dict]:
+    """Helper to convert SQLAlchemy Row objects to dicts."""
+    return [dict(row._mapping) for row in rows]
+
 
 def get_orders_by_symbol(
     session: Session,
     symbol: str,
     *,
     limit: int = 100,
-) -> Sequence[Order]:
-    """Fetch orders for a given symbol, newest first (uses ix_orders_symbol_received)."""
-    stmt = (
-        select(Order)
-        .where(Order.symbol == symbol)
-        .order_by(Order.received_at.desc())
-        .limit(limit)
-    )
-    return session.scalars(stmt).all()
+) -> list[dict]:
+    """Fetch orders for a given symbol, newest first."""
+    sql = text("""
+        SELECT * FROM orders 
+        WHERE symbol = :symbol 
+        ORDER BY received_at DESC 
+        LIMIT :limit
+    """)
+    result = session.execute(sql, {"symbol": symbol, "limit": limit})
+    return _to_dicts(result.all())
 
 
-def get_orders_by_cl_ord_id(session: Session, cl_ord_id: str) -> Sequence[Order]:
+def get_orders_by_cl_ord_id(session: Session, cl_ord_id: str) -> list[dict]:
     """Fetch all order lifecycle events for a client order ID."""
-    stmt = (
-        select(Order)
-        .where(Order.cl_ord_id == cl_ord_id)
-        .order_by(Order.received_at)
-    )
-    return session.scalars(stmt).all()
+    sql = text("""
+        SELECT * FROM orders 
+        WHERE cl_ord_id = :cl_ord_id 
+        ORDER BY received_at ASC
+    """)
+    result = session.execute(sql, {"cl_ord_id": cl_ord_id})
+    return _to_dicts(result.all())
 
 
 def get_orders_in_range(
@@ -98,26 +129,39 @@ def get_orders_in_range(
     *,
     symbol: Optional[str] = None,
     limit: int = 500,
-) -> Sequence[Order]:
+) -> list[dict]:
     """Fetch orders within a time window, optionally filtered by symbol."""
-    stmt = (
-        select(Order)
-        .where(Order.received_at.between(start, end))
-    )
     if symbol:
-        stmt = stmt.where(Order.symbol == symbol)
-    stmt = stmt.order_by(Order.received_at.desc()).limit(limit)
-    return session.scalars(stmt).all()
+        sql = text("""
+            SELECT * FROM orders 
+            WHERE received_at BETWEEN :start AND :end 
+              AND symbol = :symbol
+            ORDER BY received_at DESC 
+            LIMIT :limit
+        """)
+        params = {"start": start, "end": end, "symbol": symbol, "limit": limit}
+    else:
+        sql = text("""
+            SELECT * FROM orders 
+            WHERE received_at BETWEEN :start AND :end
+            ORDER BY received_at DESC 
+            LIMIT :limit
+        """)
+        params = {"start": start, "end": end, "limit": limit}
+        
+    result = session.execute(sql, params)
+    return _to_dicts(result.all())
 
 
-def get_anomalies_for_order(session: Session, order_id: int) -> Sequence[Anomaly]:
+def get_anomalies_for_order(session: Session, order_id: int) -> list[dict]:
     """Get all anomalies associated with a specific order."""
-    stmt = (
-        select(Anomaly)
-        .where(Anomaly.order_id == order_id)
-        .order_by(Anomaly.detected_at)
-    )
-    return session.scalars(stmt).all()
+    sql = text("""
+        SELECT * FROM anomalies 
+        WHERE order_id = :order_id 
+        ORDER BY detected_at ASC
+    """)
+    result = session.execute(sql, {"order_id": order_id})
+    return _to_dicts(result.all())
 
 
 def get_anomalies_by_type(
@@ -125,19 +169,20 @@ def get_anomalies_by_type(
     anomaly_type: str,
     *,
     limit: int = 100,
-) -> Sequence[Anomaly]:
+) -> list[dict]:
     """Fetch anomalies of a given type, newest first."""
-    stmt = (
-        select(Anomaly)
-        .where(Anomaly.anomaly_type == anomaly_type)
-        .order_by(Anomaly.detected_at.desc())
-        .limit(limit)
-    )
-    return session.scalars(stmt).all()
+    sql = text("""
+        SELECT * FROM anomalies 
+        WHERE anomaly_type = :anomaly_type 
+        ORDER BY detected_at DESC 
+        LIMIT :limit
+    """)
+    result = session.execute(sql, {"anomaly_type": anomaly_type, "limit": limit})
+    return _to_dicts(result.all())
 
 
 def count_orders_by_symbol(session: Session, symbol: str) -> int:
     """Return the total count of orders for a symbol."""
-    from sqlalchemy import func
-    stmt = select(func.count()).select_from(Order).where(Order.symbol == symbol)
-    return session.scalar(stmt) or 0
+    sql = text("SELECT COUNT(*) FROM orders WHERE symbol = :symbol")
+    result = session.execute(sql, {"symbol": symbol})
+    return result.scalar() or 0

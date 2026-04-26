@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick smoke test: insert sample FIX orders, query them back."""
+"""Quick smoke test: insert sample FIX orders, query them back (Raw SQL version)."""
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,39 +31,39 @@ def main():
             order_dict = tags_to_order(tags, raw)
             rec = insert_order(session, order_dict)
             inserted.append(rec)
-            print(f"  ✓ id={rec.id}  sym={rec.symbol:<6} type={rec.msg_type:<14} "
-                  f"cl_ord_id={rec.cl_ord_id}  px={rec.price}  fill={rec.fill_price}")
+            print(f"  ✓ id={rec['id']}  sym={rec['symbol']:<6} type={rec['msg_type']:<14} "
+                  f"cl_ord_id={rec['cl_ord_id']}  px={rec['price']}  fill={rec['fill_price']}")
         session.commit()
 
         # ── Insert an anomaly ───────────────────────────────────────
         print("\n═══ Inserting sample anomaly ═══")
         anom = insert_anomaly(session, {
-            "order_id": inserted[0].id,
+            "order_id": inserted[0]["id"],
             "anomaly_type": "PRICE_SPIKE",
             "severity": "HIGH",
             "description": "Price moved >5% in 1 second",
             "raw_fix": SAMPLE_MESSAGES[0],
         })
         session.commit()
-        print(f"  ✓ anomaly id={anom.id}  type={anom.anomaly_type}  "
-              f"severity={anom.severity}  order_id={anom.order_id}")
+        print(f"  ✓ anomaly id={anom['id']}  type={anom['anomaly_type']}  "
+              f"severity={anom['severity']}  order_id={anom['order_id']}")
 
         # ── Queries ─────────────────────────────────────────────────
         print("\n═══ Query: AAPL orders ═══")
         for o in get_orders_by_symbol(session, "AAPL"):
-            print(f"  id={o.id}  cl_ord_id={o.cl_ord_id}  type={o.msg_type}  "
-                  f"px={o.price}  fill={o.fill_price}")
+            print(f"  id={o['id']}  cl_ord_id={o['cl_ord_id']}  type={o['msg_type']}  "
+                  f"px={o['price']}  fill={o['fill_price']}")
 
         print("\n═══ Query: ORD002 lifecycle ═══")
         for o in get_orders_by_cl_ord_id(session, "ORD002"):
-            print(f"  id={o.id}  type={o.msg_type}  status={o.status}")
+            print(f"  id={o['id']}  type={o['msg_type']}  status={o['status']}")
 
         print(f"\n═══ Count: {count_orders_by_symbol(session, 'AAPL')} AAPL orders total ═══")
         print(f"═══ Count: {count_orders_by_symbol(session, 'MSFT')} MSFT orders total ═══")
 
-        print("\n═══ Query: anomalies for order {0} ═══".format(inserted[0].id))
-        for a in get_anomalies_for_order(session, inserted[0].id):
-            print(f"  id={a.id}  type={a.anomaly_type}  severity={a.severity}")
+        print("\n═══ Query: anomalies for order {0} ═══".format(inserted[0]['id']))
+        for a in get_anomalies_for_order(session, inserted[0]['id']):
+            print(f"  id={a['id']}  type={a['anomaly_type']}  severity={a['severity']}")
 
         print("\n✅ All tests passed!")
 
