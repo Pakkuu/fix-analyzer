@@ -1,10 +1,6 @@
 # parser.py
 import sys
-import time
-from pathlib import Path
 from datetime import datetime, UTC
-
-LOG_FILE = Path(__file__).parent.parent / "logs" / "fix-session.log"
 
 MSG_TYPES = {
     "D": "NEW_ORDER",
@@ -38,28 +34,14 @@ def format_msg(tags: dict) -> str:
     )
 
 
-def tail(path: Path, from_start: bool = False):
-    with open(path, "r") as f:
-        if not from_start:
-            f.seek(0, 2)  # jump to end for live-tail mode
-        while True:
-            line = f.readline()
-            if not line:
-                time.sleep(0.1)
-                continue
-            yield line.strip()
-
-
 def main() -> None:
-    from_start = "--all" in sys.argv
-    print(f"Parser running... (log: {LOG_FILE})")
-    for line in tail(LOG_FILE, from_start=from_start):
+    for line in sys.stdin:
+        line = line.strip()
         if not line or "=" not in line:
             continue
         tags = decode(line)
-        if not tags.get("35"):
-            continue
-        print(format_msg(tags))
+        if tags.get("35"):
+            print(format_msg(tags), flush=True)
 
 
 if __name__ == "__main__":
