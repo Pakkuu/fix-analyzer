@@ -65,6 +65,9 @@ def main() -> None:
         db_available = False
         print("[parser] WARNING: database unavailable, running in stdout-only mode", flush=True)
 
+    # Cache to track the last sequence number per session within this batch
+    session_cache = {}
+
     for line in sys.stdin:
         line = line.strip()
         if not line or "=" not in line:
@@ -80,28 +83,42 @@ def main() -> None:
                 session = get_session()
                 order_dict = tags_to_order(tags, line)
                 
-                # Check for sequence gap BEFORE inserting (to know previous state)
-                prev_max = get_max_seq_num(
-                    session, 
-                    order_dict.get("sender_comp_id"), 
-                    order_dict.get("target_comp_id")
-                )
+                sender = order_dict.get("sender_comp_id")
+                target = order_dict.get("target_comp_id")
+                s_key = (sender, target)
+
+                # Initialize cache from DB if not already seen in this batch
+                if s_key not in session_cache:
+                    session_cache[s_key] = get_max_seq_num(session, sender, target)
+                
+                prev_max = session_cache[s_key]
                 
                 # Persist order
                 inserted_order = insert_order(session, order_dict)
                 
+                # Flush so that raw SQL queries in analyzer (for duplicate ID checks) 
+                # can see this record immediately.
+                session.flush()
+
                 # Run Anomaly Detection
                 anomalies = analyze_order(session, inserted_order, tags)
                 
-                # Check specifically for sequence gap
+                # Check specifically for sequence gap using our cached value
                 gap = check_sequence_gap(session, inserted_order, prev_max)
                 if gap:
                     anomalies.append(gap)
                 
+                # Update cache for the next message in this batch
+                try:
+                    session_cache[s_key] = int(order_dict.get("seq_num") or prev_max or 0)
+                except (ValueError, TypeError):
+                    pass
+
                 # Persist and notify for all detected anomalies
                 for anom in anomalies:
-                    inserted_anom = insert_anomaly(session, anom)
-                    send_slack_alert(inserted_anom, inserted_order)
+                    insert_anomaly(session, anom)
+                    print(f"[parser] Alerting Slack: {anom['anomaly_type']} for order {inserted_order['id']}", flush=True)
+                    send_slack_alert(anom, inserted_order)
 
                 session.commit()
             except Exception as exc:
