@@ -22,7 +22,9 @@ def analyze_order(session: Session, order: dict, raw_tags: dict) -> list[dict]:
         symbol = order.get("symbol")
         stats = get_symbol_stats(session, symbol)
         
-        if stats["avg_px"] is not None:
+        # Skip price check for Market Orders (OrdType=1)
+        ord_type = raw_tags.get("40")
+        if stats["avg_px"] is not None and ord_type != "1":
             try:
                 curr_px = float(order.get("price") or 0)
                 # Flag if price deviates > 50% from recent average

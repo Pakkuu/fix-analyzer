@@ -8,6 +8,10 @@ import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session as _Session
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 _USER = os.getenv("DB_USER", "fixapp")
 _PASS = os.getenv("DB_PASS", "fixpass_2026")

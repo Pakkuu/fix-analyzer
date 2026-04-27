@@ -59,6 +59,7 @@ def main() -> None:
         from database.connection import get_session
         from database.repository import insert_order, insert_anomaly, get_max_seq_num
         from analyzer import analyze_order, check_sequence_gap
+        from notifier import send_slack_alert
         db_available = True
     except Exception:
         db_available = False
@@ -97,9 +98,10 @@ def main() -> None:
                 if gap:
                     anomalies.append(gap)
                 
-                # Persist all detected anomalies
+                # Persist and notify for all detected anomalies
                 for anom in anomalies:
-                    insert_anomaly(session, anom)
+                    inserted_anom = insert_anomaly(session, anom)
+                    send_slack_alert(inserted_anom, inserted_order)
 
                 session.commit()
             except Exception as exc:
