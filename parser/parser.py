@@ -57,7 +57,8 @@ def main() -> None:
     # Lazy import so the parser can still run standalone for stdout-only use
     try:
         from database.connection import get_session
-        from database.repository import insert_order
+        from database.repository import insert_order, insert_anomaly, get_max_seq_num
+        from analyzer import analyze_order, check_sequence_gap
         db_available = True
     except Exception:
         db_available = False
@@ -77,7 +78,29 @@ def main() -> None:
             try:
                 session = get_session()
                 order_dict = tags_to_order(tags, line)
-                insert_order(session, order_dict)
+                
+                # Check for sequence gap BEFORE inserting (to know previous state)
+                prev_max = get_max_seq_num(
+                    session, 
+                    order_dict.get("sender_comp_id"), 
+                    order_dict.get("target_comp_id")
+                )
+                
+                # Persist order
+                inserted_order = insert_order(session, order_dict)
+                
+                # Run Anomaly Detection
+                anomalies = analyze_order(session, inserted_order, tags)
+                
+                # Check specifically for sequence gap
+                gap = check_sequence_gap(session, inserted_order, prev_max)
+                if gap:
+                    anomalies.append(gap)
+                
+                # Persist all detected anomalies
+                for anom in anomalies:
+                    insert_anomaly(session, anom)
+
                 session.commit()
             except Exception as exc:
                 session.rollback()

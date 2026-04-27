@@ -1,6 +1,5 @@
 -- schema.sql
 -- Full current schema for fix_analyzer database.
--- This file is the single source of truth; keep it in sync with models.py.
 
 CREATE TABLE IF NOT EXISTS orders (
     id              BIGINT          NOT NULL AUTO_INCREMENT,

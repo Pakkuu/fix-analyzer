@@ -186,3 +186,43 @@ def count_orders_by_symbol(session: Session, symbol: str) -> int:
     sql = text("SELECT COUNT(*) FROM orders WHERE symbol = :symbol")
     result = session.execute(sql, {"symbol": symbol})
     return result.scalar() or 0
+
+
+def get_max_seq_num(session: Session, sender_comp_id: str, target_comp_id: str) -> Optional[int]:
+    """Get the highest sequence number seen for a specific session."""
+    sql = text("""
+        SELECT MAX(seq_num) FROM orders 
+        WHERE sender_comp_id = :sender AND target_comp_id = :target
+    """)
+    result = session.execute(sql, {"sender": sender_comp_id, "target": target_comp_id}).scalar()
+    return int(result) if result is not None else None
+
+
+def check_cl_ord_id_exists(session: Session, cl_ord_id: str, sender_comp_id: str = None) -> bool:
+    """Check if a ClOrdID has been used before, optionally filtered by session/sender."""
+    if sender_comp_id:
+        sql = text("SELECT 1 FROM orders WHERE cl_ord_id = :cl_ord_id AND sender_comp_id = :sender LIMIT 1")
+        params = {"cl_ord_id": cl_ord_id, "sender": sender_comp_id}
+    else:
+        sql = text("SELECT 1 FROM orders WHERE cl_ord_id = :cl_ord_id LIMIT 1")
+        params = {"cl_ord_id": cl_ord_id}
+        
+    result = session.execute(sql, params).fetchone()
+    return result is not None
+
+
+def get_symbol_stats(session: Session, symbol: str) -> dict:
+    """Get average price and quantity for the last 20 orders of a symbol."""
+    sql = text("""
+        SELECT AVG(price) as avg_px, AVG(order_qty) as avg_qty 
+        FROM (
+            SELECT price, order_qty FROM orders 
+            WHERE symbol = :symbol AND msg_type = 'NEW_ORDER'
+              AND price IS NOT NULL AND order_qty IS NOT NULL
+            ORDER BY received_at DESC LIMIT 20
+        ) as recent
+    """)
+    row = session.execute(sql, {"symbol": symbol}).fetchone()
+    if not row or row[0] is None:
+        return {"avg_px": None, "avg_qty": None}
+    return {"avg_px": float(row[0]), "avg_qty": float(row[1])}
